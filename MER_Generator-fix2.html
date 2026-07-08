@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monthly Expenditure Return - Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, "DejaVu Sans", sans-serif;
+    margin: 0;
+    padding: 10px;
+    background: #eef1f4;
+    font-size: 14px;
+  }
+  h1 { font-size: 18px; text-align: center; margin: 6px 0 12px; }
+  .panel {
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  .panel h2 { font-size: 15px; margin: 0 0 10px; border-bottom: 2px solid #2c5aa0; padding-bottom: 4px; color: #2c5aa0; }
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 8px; }
+  label { display: block; font-size: 11px; color: #555; margin-bottom: 2px; }
+  input, select, textarea {
+    width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;
+  }
+  button {
+    background: #2c5aa0; color: #fff; border: none; padding: 8px 14px;
+    border-radius: 5px; font-size: 13px; cursor: pointer; margin: 3px 3px 3px 0;
+  }
+  button.secondary { background: #6c757d; }
+  button:disabled { background: #b8bec4; cursor: not-allowed; opacity: 0.7; }
+  button.danger { background: #c0392b; padding: 4px 8px; font-size: 11px; }
+  button.small { padding: 4px 8px; font-size: 11px; }
+
+  .row-card {
+    border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-bottom: 8px; background: #fafbfc;
+  }
+  .row-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .row-card-header strong { color: #2c5aa0; }
+  .row-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px,1fr)); gap: 6px; }
+  .row-fields .fieldwrap label { font-size: 10px; }
+
+  table.posts-edit { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  table.posts-edit th, table.posts-edit td { border: 1px solid #ccc; padding: 4px; font-size: 12px; }
+  table.posts-edit input { font-size: 12px; padding: 3px; }
+
+  .toolbar { text-align: center; margin: 10px 0 20px; }
+
+  /* ---------- PRINT / PREVIEW TABLE ---------- */
+  #preview-wrapper { overflow-x: auto; background: #fff; padding: 8px; border-radius: 8px; }
+  .title { text-align: center; font-size: 15px; font-weight: bold; margin-bottom: 2px; }
+  .office-row { text-align: center; font-size: 12px; margin-bottom: 6px; }
+
+  /* Base structural rules only — actual column widths, font sizes, and the
+     printed page size are all computed live by autoFitMerTable() (see
+     script) from the table's real content at comfortable, fixed font sizes
+     (never shrunk to squeeze into a preset sheet), so every value, however
+     long, is guaranteed to fit without wrapping/breaking, both on screen
+     and when printed — and the print page auto-sizes to exactly what the
+     table needs instead of a fixed A3 sheet. That function injects a
+     #mer-dyn-style tag with !important rules (including @page) that
+     override the sizes below; these are just a sane fallback before the
+     first render happens. */
+  table.mer { border-collapse: collapse; table-layout: fixed; }
+  table.mer th, table.mer td {
+    border: 1px solid #000; padding: 2px 3px; text-align: center; vertical-align: middle;
+    word-wrap: break-word; overflow: hidden; font-size: 13px; line-height: 1.18;
+  }
+  table.mer thead th { font-weight: bold; background: #f2f2f2; }
+  table.mer td.num { text-align: right; padding-right: 4px; }
+  table.mer td.label { text-align: left; font-weight: bold; }
+  table.mer tr.entries-end td, table.mer tr.entries-end th { border-bottom: 2.5px solid #000; }
+
+  .footer-block { margin-top: 10px; font-size: 12px; }
+  .footer-block p { margin: 3px 0; }
+  table.posts { border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+  table.posts th, table.posts td { border: 1px solid #000; padding: 3px 8px; text-align: center; }
+  .signature-block { margin-top: 26px; text-align: right; font-size: 12px; line-height: 1.4; }
+
+  /* Static fallback only. The real page size is computed live by
+     autoFitMerTable() from the table's actual content at a comfortable,
+     never-shrunk font, then injected into #mer-dyn-style as an @page rule
+     sized to fit exactly (auto/custom) — instead of forcing every printer
+     or "Save as PDF" dialog onto a fixed A3 sheet it may not have, which
+     is what was cutting the sheet off / rescaling it oddly and, combined
+     with too little safety margin per column, letting the widest figures
+     (columns 17-18, Daily Wages / Total Salary) clip or wrap. */
+  @page {
+    size: landscape;
+    margin: 8mm;
+  }
+
+  @media print {
+    html, body {
+      background: #fff; padding: 0; margin: 0;
+    }
+    .panel, .toolbar, h1 { display: none !important; }
+
+    /* Make sure borders/shading actually reproduce in the printed/PDF output
+       (some browsers drop backgrounds unless this is forced). */
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+
+    #preview-wrapper {
+      overflow: visible;
+      padding: 0;
+      margin: 0 auto;
+    }
+
+    /* Keep the printed sheet strictly black & white — no grey header shading. */
+    table.mer thead th { background: #fff !important; }
+
+    /* NOTE: table.mer's width, column widths, and every font size (header,
+       code row, position-number row, data cells, and the emphasized
+       hl-mid/hl-big cells) are NOT set here. They're computed live by
+       autoFitMerTable() in the script, which measures every actual value
+       that will be printed and sizes columns/fonts so nothing ever wraps
+       or breaks — then injects those exact px sizes into #mer-dyn-style
+       with !important, applied identically on screen and on this print
+       page. That's what keeps print output matching the on-screen preview
+       exactly, and what replaces the old fixed-guess sizes here.
+       See autoFitMerTable() for the actual values used. */
+    table.mer th, table.mer td { padding: 2.5px 2px; line-height: 1.15; }
+    table.mer thead th { line-height: 1.1; padding: 1.5px 1.5px; font-weight: bold; }
+    tr.code-row th { padding: 1.5px 1.5px; line-height: 1; letter-spacing: -0.1px; }
+    table.mer thead { display: table-header-group; }
+    table.mer tbody tr, .footer-block, .signature-block { page-break-inside: avoid; }
+    table.posts { font-size: 11.5pt; width: auto; }
+    table.posts th, table.posts td { padding: 3px 8px; }
+    .footer-block { font-size: 11.5pt; margin-top: 3mm; }
+    .footer-block p { margin: 3px 0; }
+    .signature-block { margin-top: 8mm; font-size: 12pt; line-height: 1.5; }
+    .title { font-size: 17pt; margin-bottom: 2mm; }
+    .office-row { font-size: 12.5pt; margin-bottom: 2mm; }
+  }
+</style>
+</head>
+<body>
+
+<button onclick="goBack()" style="background:#6c757d;color:#fff;border:none;padding:7px 14px;border-radius:5px;font-size:13px;cursor:pointer;margin:4px 0;">⬅ Back</button>
+
+<h1>Monthly Expenditure Return — Generator</h1>
+
+<div class="panel">
+  <h2>Office Details</h2>
+  <div class="field-grid">
+    <div><label>Office Name</label><input id="office_name"></div>
+    <div><label>District</label><input id="district"></div>
+    <div><label>D.D. Code</label><input id="dd_code"></div>
+    <div><label>Mobile No.</label><input id="mobile_no"></div>
+    <div><label>Month</label>
+      <select id="month">
+        <option value="January">January</option>
+        <option value="February">February</option>
+        <option value="March">March</option>
+        <option value="April">April</option>
+        <option value="May">May</option>
+        <option value="June">June</option>
+        <option value="July">July</option>
+        <option value="August">August</option>
+        <option value="September">September</option>
+        <option value="October">October</option>
+        <option value="November">November</option>
+        <option value="December">December</option>
+      </select>
+    </div>
+    <div><label>Year</label><input id="year" type="number"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>D.A. Rate</h2>
+  <p style="font-size:11px;color:#777;margin:0 0 8px;">Government jab D.A. rate badhaye/ghataye, to yahan number change kar do — poore form me (is month aur cumulative dono jagah) automatically use hoga. H.R. Allowance hamesha 7% fixed hai.</p>
+  <div class="fieldwrap"><label>D.A. Rate (%)</label>
+    <input type="number" id="da_rate" value="58" oninput="daRatePercent = Number(this.value) || 0; rows.forEach(r => updateAutoCalcPreview(r.id)); updateLastMonthAutoCalc(); scheduleAutosave();">
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Line Items (Try. Vr. entries)</h2>
+  <div id="rows-container"></div>
+  <button onclick="addRow()">+ Add Row</button>
+</div>
+
+<div class="panel">
+  <h2>Cumulative (upto Last Month)</h2>
+  <p style="font-size:11px;color:#777;margin:0 0 8px;">Enter totals carried forward from last month's M.E.R. "upto Day" line. D.A. (using the D.A. Rate % set above) and H.R. Allowance (7%) are auto-calculated from cumulative Basic pay, and this month's totals plus the new cumulative "upto Day" are calculated automatically.</p>
+  <div id="last-month-fields" class="row-fields"></div>
+</div>
+
+<div class="panel">
+  <h2>Footer Details</h2>
+  <div class="field-grid">
+    <div><label>Total Expdt. of Last Month (single month, for variation line only)</label><input id="last_month_single_total" type="number"></div>
+    <div><label>Reason for Variation</label><input id="reason_for_variation"></div>
+  </div>
+  <p style="font-size:11px;color:#777;margin:6px 0 0;">Note: this is NOT the same as "Total Ex. upto Last Month" in the table above (which is cumulative). This field is only last month's own single-month expenditure, used to compare against "Total Expdt. of Current Month" below.</p>
+  <h2 style="margin-top:14px;">Sanctioned Posts</h2>
+  <table class="posts-edit" id="posts-table">
+    <thead><tr><th>Post</th><th>Sanctioned</th><th>Filled</th><th>Vacant</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button class="small" onclick="addPost()">+ Add Post</button>
+</div>
+
+<div class="toolbar">
+  <button onclick="renderPreview()">🔄 Update Preview</button>
+  <span style="display:inline-flex; align-items:center; gap:5px; margin:4px 6px;">
+    <label for="pdf-page-size" style="font-size:12px; font-weight:bold;">Page Size:</label>
+    <select id="pdf-page-size" style="padding:6px 8px; border-radius:5px; border:1px solid #ccc; font-size:13px;">
+      <option value="A4">A4 (normal)</option>
+      <option value="A3">A3 (bigger font)</option>
+      <option value="A2">A2 (biggest font)</option>
+    </select>
+  </span>
+  <button id="pdf-btn" onclick="downloadPDF()">⬇ Download PDF (Auto-size)</button>
+  <button id="undo-btn" class="secondary" onclick="undoLastChange()">↶ Undo Last Change</button>
+  <button class="secondary" onclick="carryForwardToNextMonth()">➡ Start Next Month (carry forward totals)</button>
+  <button class="secondary" onclick="autoFitMerTable(); window.print();">🖨️ Browser Print (fallback)</button>
+  <button class="secondary" onclick="exportJSON()">⬇ Export Data (JSON)</button>
+  <button class="secondary" onclick="document.getElementById('import-file').click()">⬆ Import Data (JSON)</button>
+  <button class="danger small" onclick="clearAutosave()">🗑 Clear Saved Data</button>
+  <input type="file" id="import-file" accept="application/json" style="display:none" onchange="importJSON(event)">
+  <p id="save-indicator" style="font-size:11px; color:#2c9c4a; margin:8px 0 0; font-weight:bold;"></p>
+  <p style="font-size:11px; color:#777; max-width:520px; margin:6px auto 0;">
+    Use <strong>"Download PDF (Auto-size)"</strong> — it builds the PDF file itself, with its page
+    width auto-computed to exactly fit all 31 columns at a comfortable, readable font (never a
+    fixed A3/A4 sheet forcing the text to shrink), so it comes out correctly on every phone,
+    unlike your device's own print dialog (which often silently prints portrait no matter what
+    this page asks for). Most printers/print shops can scale this PDF down to whatever paper
+    they actually have ("fit to page" in the print dialog). The "Browser Print" button is a
+    fallback if you specifically need the OS print dialog — it also auto-sizes its page to the
+    content instead of forcing a fixed paper size, so use "Custom"/"Fit to page" scale there too
+    if your printer's own paper is smaller.
+    Your entries are auto-saved in this browser as you type — closing or reloading the page
+    will not lose your data (but clearing browser data/cache will).
+  </p>
+</div>
+
+<div id="preview-wrapper"></div>
+
+<script>
+// D.A. (58%) and H.R. Allowance (7%) are NOT in this list anymore — they are
+// auto-calculated from Total Pay of Establishment (Basic) in computeRow(),
+// exactly like the original form: D.A. = Basic x 58%, H.R. Allowance = Basic x 7%.
+const COLS = [
+  ['pay_officer','Pay of Officer'], ['pay_ses','Pay of S.E.S.'], ['pay_ministerial','Pay of Minist. Staff'],
+  ['pay_servant','Pay of Servant'], ['sched_area_allow','Schedule Area Allowance'],
+  ['other_allow_citymedical','Other Allow. / City & Medical Allow (code 014)'],
+  ['medical_charges','Medical Charges — separate column (code 015)'],
+  ['festival_advance','Festival Advance'], ['festival_adv_recovery','Festival Adv. Recovery'],
+  ['wages_contg_estt','Wages Contg. Estt.'], ['wages_other_contg','Wages Other Contg.'], ['daily_wages','Daily Wages'],
+  ['other_ta','Other T.A.'], ['ptt_exp','P.&T. Exp.'], ['telephone','Telephone'], ['furniture','Furniture'],
+  ['book_period','Book & Period.'], ['electric_water','Electric & Water'], ['liveries','Liveries'],
+  ['stationery','Stationery'], ['other_off_contg','Other Off. Contg.'], ['info_tech','Info. Tech.'],
+  ['vocational_services','Vocational Services Payment 10 Exam Work']
+];
+
+let rows = [];
+let posts = [];
+let rowCounter = 0;
+let daRatePercent = 58; // editable D.A. rate — change via the "D.A. Rate (%)" field in the form
+let postCounter = 0;
+
+const AUTOSAVE_KEY = 'mer_generator_autosave_v1';
+let autosaveTimer = null;
+
+function collectState() {
+  return {
+    office_name: document.getElementById('office_name').value,
+    district: document.getElementById('district').value,
+    dd_code: document.getElementById('dd_code').value,
+    mobile_no: document.getElementById('mobile_no').value,
+    month: document.getElementById('month').value,
+    year: document.getElementById('year').value,
+    reason_for_variation: document.getElementById('reason_for_variation').value,
+    last_month_single_total: document.getElementById('last_month_single_total').value,
+    da_rate_percent: daRatePercent,
+    rows: rows,
+    posts: posts,
+    last_month: COLS.reduce((acc,[key])=>{
+      const el = document.getElementById('lm_'+key);
+      acc[key] = el ? Number(el.value)||0 : 0;
+      return acc;
+    }, {})
+  };
+}
+
+function applyState(data) {
+  document.getElementById('office_name').value = data.office_name || '';
+  document.getElementById('district').value = data.district || '';
+  document.getElementById('dd_code').value = data.dd_code || '';
+  document.getElementById('mobile_no').value = data.mobile_no || '';
+  document.getElementById('month').value = data.month || '';
+  document.getElementById('year').value = data.year || '';
+  document.getElementById('reason_for_variation').value = data.reason_for_variation || '';
+  document.getElementById('last_month_single_total').value = data.last_month_single_total || 0;
+  daRatePercent = (data.da_rate_percent !== undefined && data.da_rate_percent !== null && data.da_rate_percent !== '') ? Number(data.da_rate_percent) : 58;
+  const daRateEl = document.getElementById('da_rate');
+  if (daRateEl) daRateEl.value = daRatePercent;
+  rows = (data.rows || []).map(r => {
+    const clean = { id: ++rowCounter, try_vr_no_date: r.try_vr_no_date || '' };
+    COLS.forEach(([key]) => { clean[key] = Number(r[key]) || 0; });
+    return clean;
+  });
+  posts = (data.posts || []).map(p => ({ ...p, id: ++postCounter }));
+  renderRowsForm();
+  renderPostsForm();
+  if (data.last_month) {
+    COLS.forEach(([key]) => {
+      const el = document.getElementById('lm_' + key);
+      if (el) el.value = data.last_month[key] || 0;
+    });
+  }
+}
+
+function saveAutosave() {
+  try {
+    pushUndoSnapshot(); // remember the state as it was BEFORE this change, so it can be undone
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(collectState()));
+    const ind = document.getElementById('save-indicator');
+    if (ind) {
+      const t = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      ind.textContent = '✓ Saved in this browser at ' + t;
+      ind.style.color = '#2c9c4a';
+    }
+  } catch (e) {
+    console.error('Autosave failed:', e);
+    const ind = document.getElementById('save-indicator');
+    if (ind) { ind.style.color = '#c0392b'; ind.textContent = '⚠ Auto-save failed (browser storage blocked/full)'; }
+  }
+}
+
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(saveAutosave, 600);
+}
+
+function loadAutosave() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return false;
+    applyState(JSON.parse(raw));
+    const ind = document.getElementById('save-indicator');
+    if (ind) ind.textContent = '✓ Restored your last saved data from this browser';
+    return true;
+  } catch (e) {
+    console.error('Autosave load failed:', e);
+    return false;
+  }
+}
+
+function clearAutosave() {
+  if (!confirm('Is browser me saved saara data delete ho jayega. Pakka delete karna hai?')) return;
+  try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) {}
+  try { localStorage.removeItem(UNDO_KEY); undoStack = []; } catch (e) {}
+  location.reload();
+}
+
+// ---------- Undo history ----------
+// Every time the form autosaves, the state it's about to OVERWRITE gets
+// pushed onto this stack first, so "Undo" can bring back what was there a
+// moment ago (e.g. an accidentally deleted row or cleared field). The stack
+// is capped and persisted in localStorage so it survives a page reload.
+const UNDO_KEY = 'mer_generator_undo_stack_v1';
+const UNDO_MAX = 20;
+let undoStack = [];
+
+function loadUndoStack() {
+  try {
+    const raw = localStorage.getItem(UNDO_KEY);
+    undoStack = raw ? JSON.parse(raw) : [];
+  } catch (e) { undoStack = []; }
+  refreshUndoButton();
+}
+
+function persistUndoStack() {
+  try { localStorage.setItem(UNDO_KEY, JSON.stringify(undoStack)); } catch (e) {}
+  refreshUndoButton();
+}
+
+function pushUndoSnapshot() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return; // nothing existed before this change — nothing to undo to
+    if (undoStack.length && undoStack[undoStack.length - 1] === raw) return; // no real change
+    undoStack.push(raw);
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+    persistUndoStack();
+  } catch (e) {}
+}
+
+function refreshUndoButton() {
+  const btn = document.getElementById('undo-btn');
+  if (btn) btn.disabled = undoStack.length === 0;
+}
+
+function undoLastChange() {
+  if (!undoStack.length) {
+    alert('Undo karne ke liye koi purana saved data nahi mila.');
+    return;
+  }
+  const prev = undoStack.pop();
+  persistUndoStack();
+  try {
+    applyState(JSON.parse(prev));
+    localStorage.setItem(AUTOSAVE_KEY, prev);
+    renderPreview();
+    const ind = document.getElementById('save-indicator');
+    if (ind) { ind.style.color = '#2c6bb5'; ind.textContent = '↶ Undo ho gaya — pichla data wapas aa gaya'; }
+  } catch (e) {
+    console.error('Undo failed:', e);
+    alert('Undo fail ho gaya — data corrupt ho sakta hai.');
+  }
+}
+
+function blankRow() {
+  const r = { id: ++rowCounter, try_vr_no_date: '' };
+  COLS.forEach(([key]) => r[key] = 0);
+  return r;
+}
+
+function addRow(data) {
+  rows.push(data || blankRow());
+  renderRowsForm();
+  scheduleAutosave();
+}
+
+function removeRow(id) {
+  rows = rows.filter(r => r.id !== id);
+  renderRowsForm();
+  scheduleAutosave();
+}
+
+function addPost(data) {
+  posts.push(data || { id: ++postCounter, post: '', sanctioned: 0, filled: 0, vacant: 0 });
+  renderPostsForm();
+  scheduleAutosave();
+}
+
+function removePost(id) {
+  posts = posts.filter(p => p.id !== id);
+  renderPostsForm();
+  scheduleAutosave();
+}
+
+function renderRowsForm() {
+  const container = document.getElementById('rows-container');
+  container.innerHTML = '';
+  rows.forEach((r, idx) => {
+    const basic = r.pay_officer + r.pay_ses + r.pay_ministerial + r.pay_servant;
+    const card = document.createElement('div');
+    card.className = 'row-card';
+    card.innerHTML = `
+      <div class="row-card-header">
+        <strong>Sr. No. ${idx + 1}</strong>
+        <button class="danger" onclick="removeRow(${r.id})">Remove</button>
+      </div>
+      <p id="auto-calc-${r.id}" style="font-size:11px;color:#2c9c4a;margin:0 0 6px;">
+        Auto-calculated from Basic (${basic.toLocaleString('en-IN')}): D.A. ${daRatePercent}% = ${Math.round(basic*(daRatePercent/100)).toLocaleString('en-IN')},
+        H.R. Allowance 7% = ${Math.round(basic*0.07).toLocaleString('en-IN')}
+      </p>
+      <div class="row-fields">
+        <div class="fieldwrap"><label>Try. Vr. No. & Date</label><input value="${r.try_vr_no_date}" oninput="rows.find(x=>x.id===${r.id}).try_vr_no_date=this.value"></div>
+        ${COLS.map(([key,label]) => `
+          <div class="fieldwrap"><label>${label}</label>
+          <input type="number" value="${r[key]}" oninput="rows.find(x=>x.id===${r.id}).${key}=Number(this.value)||0; updateAutoCalcPreview(${r.id});">
+          </div>`).join('')}
+      </div>`;
+    container.appendChild(card);
+  });
+}
+
+function updateAutoCalcPreview(id) {
+  const r = rows.find(x => x.id === id);
+  const el = document.getElementById('auto-calc-' + id);
+  if (!r || !el) return;
+  const basic = r.pay_officer + r.pay_ses + r.pay_ministerial + r.pay_servant;
+  el.textContent = `Auto-calculated from Basic (${basic.toLocaleString('en-IN')}): D.A. ${daRatePercent}% = ${Math.round(basic*(daRatePercent/100)).toLocaleString('en-IN')}, H.R. Allowance 7% = ${Math.round(basic*0.07).toLocaleString('en-IN')}`;
+}
+
+function renderPostsForm() {
+  const tbody = document.querySelector('#posts-table tbody');
+  tbody.innerHTML = '';
+  posts.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input value="${p.post}" oninput="posts.find(x=>x.id===${p.id}).post=this.value"></td>
+      <td><input type="number" value="${p.sanctioned}" oninput="posts.find(x=>x.id===${p.id}).sanctioned=Number(this.value)||0"></td>
+      <td><input type="number" value="${p.filled}" oninput="posts.find(x=>x.id===${p.id}).filled=Number(this.value)||0"></td>
+      <td><input type="number" value="${p.vacant}" oninput="posts.find(x=>x.id===${p.id}).vacant=Number(this.value)||0"></td>
+      <td><button class="danger" onclick="removePost(${p.id})">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderLastMonthForm() {
+  const container = document.getElementById('last-month-fields');
+  container.innerHTML = COLS.map(([key,label]) => `
+    <div class="fieldwrap"><label>${label}</label>
+    <input type="number" id="lm_${key}" value="0" oninput="updateLastMonthAutoCalc()"></div>`).join('');
+  const p = document.createElement('p');
+  p.id = 'lm-auto-calc';
+  p.style = 'font-size:11px;color:#2c9c4a;margin:8px 0 0;grid-column:1/-1;';
+  container.insertAdjacentElement('afterbegin', p);
+  updateLastMonthAutoCalc();
+}
+
+function updateLastMonthAutoCalc() {
+  const basic = (Number(document.getElementById('lm_pay_officer')?.value) || 0)
+    + (Number(document.getElementById('lm_pay_ses')?.value) || 0)
+    + (Number(document.getElementById('lm_pay_ministerial')?.value) || 0)
+    + (Number(document.getElementById('lm_pay_servant')?.value) || 0);
+  const el = document.getElementById('lm-auto-calc');
+  if (el) el.textContent = `Auto-calculated from cumulative Basic (${basic.toLocaleString('en-IN')}): D.A. ${daRatePercent}% = ${Math.round(basic*(daRatePercent/100)).toLocaleString('en-IN')}, H.R. Allowance 7% = ${Math.round(basic*0.07).toLocaleString('en-IN')}`;
+}
+
+function computeRow(rawR) {
+  // Guard against any missing/undefined field (e.g. a row imported from an
+  // older JSON export that predates a newer column like medical_charges).
+  // A single undefined field turns the whole sum into NaN, which then
+  // prints as "-" everywhere (Total Salary, Grand Total, and every total
+  // row that adds this row in) -- so every field is force-coerced to a
+  // real number here before any arithmetic happens.
+  const r = {};
+  COLS.forEach(([key]) => { r[key] = Number(rawR[key]) || 0; });
+  r.try_vr_no_date = rawR.try_vr_no_date || '';
+  r.id = rawR.id;
+
+  const total_estt = r.pay_officer + r.pay_ses + r.pay_ministerial + r.pay_servant;
+  // Auto-calculated from Basic pay (Total Pay of Estt.), exactly like the original
+  // form: D.A. = Basic x 58%, H.R. Allowance = Basic x 7%. No manual entry needed.
+  const da_58 = Math.round(total_estt * (daRatePercent / 100));
+  const hr_allow_7 = Math.round(total_estt * 0.07);
+  const total_salary = total_estt + da_58 + r.sched_area_allow + hr_allow_7 + r.other_allow_citymedical
+    + r.medical_charges + r.festival_advance - r.festival_adv_recovery + r.wages_contg_estt + r.wages_other_contg + r.daily_wages;
+  const total_contg_exp = r.ptt_exp + r.telephone + r.furniture + r.book_period + r.electric_water
+    + r.liveries + r.stationery + r.other_off_contg + r.info_tech;
+  const grand_total = total_salary + r.other_ta + total_contg_exp + r.vocational_services;
+  return { ...r, total_estt, da_58, hr_allow_7, total_salary, total_contg_exp, grand_total };
+}
+
+function sumField(list, key) { return list.reduce((s, r) => s + (r[key] || 0), 0); }
+
+function fmt(v) { return v ? Math.round(v).toLocaleString('en-IN') : '-'; }
+
+function renderPreview() {
+  const office_name = document.getElementById('office_name').value || '';
+  const district = document.getElementById('district').value || '';
+  const dd_code = document.getElementById('dd_code').value || '';
+  const mobile_no = document.getElementById('mobile_no').value || '';
+  const month = document.getElementById('month').value || '';
+  const year = document.getElementById('year').value || '';
+  const reason_for_variation = document.getElementById('reason_for_variation').value || '';
+  const lastMonthSingle = Number(document.getElementById('last_month_single_total')?.value) || 0;
+
+  const computedRows = rows.map(computeRow);
+
+  const allKeys = ['pay_officer','pay_ses','pay_ministerial','pay_servant','total_estt','da_58',
+    'sched_area_allow','hr_allow_7','other_allow_citymedical','medical_charges','festival_advance','festival_adv_recovery',
+    'wages_contg_estt','wages_other_contg','daily_wages','total_salary','other_ta','ptt_exp','telephone',
+    'furniture','book_period','electric_water','liveries','stationery','other_off_contg','info_tech',
+    'total_contg_exp','vocational_services','grand_total'];
+
+  const thisMonth = {};
+  allKeys.forEach(k => thisMonth[k] = sumField(computedRows, k));
+
+  const lastMonth = {};
+  allKeys.forEach(k => {
+    if (k === 'total_estt' || k === 'total_salary' || k === 'total_contg_exp' || k === 'grand_total') return;
+    const el = document.getElementById('lm_' + k);
+    lastMonth[k] = el ? (Number(el.value) || 0) : 0;
+  });
+  lastMonth.total_estt = lastMonth.pay_officer + lastMonth.pay_ses + lastMonth.pay_ministerial + lastMonth.pay_servant;
+  lastMonth.da_58 = Math.round(lastMonth.total_estt * (daRatePercent / 100));
+  lastMonth.hr_allow_7 = Math.round(lastMonth.total_estt * 0.07);
+  lastMonth.total_salary = lastMonth.total_estt + lastMonth.da_58 + lastMonth.sched_area_allow + lastMonth.hr_allow_7
+    + lastMonth.other_allow_citymedical + lastMonth.medical_charges + lastMonth.festival_advance - lastMonth.festival_adv_recovery
+    + lastMonth.wages_contg_estt + lastMonth.wages_other_contg + lastMonth.daily_wages;
+  lastMonth.total_contg_exp = lastMonth.ptt_exp + lastMonth.telephone + lastMonth.furniture + lastMonth.book_period
+    + lastMonth.electric_water + lastMonth.liveries + lastMonth.stationery + lastMonth.other_off_contg + lastMonth.info_tech;
+  lastMonth.grand_total = lastMonth.total_salary + lastMonth.other_ta + lastMonth.total_contg_exp
+    + lastMonth.vocational_services;
+
+  const uptoDate = {};
+  allKeys.forEach(k => uptoDate[k] = (thisMonth[k] || 0) + (lastMonth[k] || 0));
+
+  function totalRow(label, t) {
+    return `<tr>
+      <td class="label" colspan="2">${label}</td>
+      <td class="num hl-mid">${fmt(t.pay_officer)}</td><td class="num hl-mid">${fmt(t.pay_ses)}</td>
+      <td class="num">${fmt(t.pay_ministerial)}</td><td class="num">${fmt(t.pay_servant)}</td>
+      <td class="num hl-mid">${fmt(t.total_estt)}</td><td class="num hl-mid">${fmt(t.da_58)}</td>
+      <td class="num">${fmt(t.sched_area_allow)}</td><td class="num">${fmt(t.hr_allow_7)}</td>
+      <td class="num">${fmt(t.other_allow_citymedical)}</td><td class="num">${fmt(t.medical_charges)}</td>
+      <td class="num">${fmt(t.festival_advance)}</td>
+      <td class="num">${fmt(t.festival_adv_recovery)}</td><td class="num">${fmt(t.wages_contg_estt)}</td>
+      <td class="num">${fmt(t.wages_other_contg)}</td><td class="num">${fmt(t.daily_wages)}</td>
+      <td class="num hl-big">${fmt(t.total_salary)}</td><td class="num">${fmt(t.other_ta)}</td>
+      <td class="num">${fmt(t.ptt_exp)}</td><td class="num">${fmt(t.telephone)}</td>
+      <td class="num">${fmt(t.furniture)}</td><td class="num">${fmt(t.book_period)}</td>
+      <td class="num">${fmt(t.electric_water)}</td><td class="num">${fmt(t.liveries)}</td>
+      <td class="num">${fmt(t.stationery)}</td><td class="num">${fmt(t.other_off_contg)}</td>
+      <td class="num">${fmt(t.info_tech)}</td><td class="num">${fmt(t.total_contg_exp)}</td>
+      <td class="num">${fmt(t.vocational_services)}</td>
+      <td class="num hl-big">${fmt(t.grand_total)}</td>
+    </tr>`;
+  }
+
+  const dataRowsHtml = computedRows.map((r, idx) => `<tr${idx === computedRows.length - 1 ? ' class="entries-end"' : ''}>
+    <td>${idx+1}</td><td>${r.try_vr_no_date || '-'}</td>
+    <td class="num hl-mid">${fmt(r.pay_officer)}</td><td class="num hl-mid">${fmt(r.pay_ses)}</td>
+    <td class="num">${fmt(r.pay_ministerial)}</td><td class="num">${fmt(r.pay_servant)}</td>
+    <td class="num hl-mid">${fmt(r.total_estt)}</td><td class="num hl-mid">${fmt(r.da_58)}</td>
+    <td class="num">${fmt(r.sched_area_allow)}</td><td class="num">${fmt(r.hr_allow_7)}</td>
+    <td class="num">${fmt(r.other_allow_citymedical)}</td><td class="num">${fmt(r.medical_charges)}</td>
+    <td class="num">${fmt(r.festival_advance)}</td>
+    <td class="num">${fmt(r.festival_adv_recovery)}</td><td class="num">${fmt(r.wages_contg_estt)}</td>
+    <td class="num">${fmt(r.wages_other_contg)}</td><td class="num">${fmt(r.daily_wages)}</td>
+    <td class="num hl-big">${fmt(r.total_salary)}</td><td class="num">${fmt(r.other_ta)}</td>
+    <td class="num">${fmt(r.ptt_exp)}</td><td class="num">${fmt(r.telephone)}</td>
+    <td class="num">${fmt(r.furniture)}</td><td class="num">${fmt(r.book_period)}</td>
+    <td class="num">${fmt(r.electric_water)}</td><td class="num">${fmt(r.liveries)}</td>
+    <td class="num">${fmt(r.stationery)}</td><td class="num">${fmt(r.other_off_contg)}</td>
+    <td class="num">${fmt(r.info_tech)}</td><td class="num">${fmt(r.total_contg_exp)}</td>
+    <td class="num">${fmt(r.vocational_services)}</td>
+    <td class="num hl-big">${fmt(r.grand_total)}</td>
+  </tr>`).join('');
+
+  const postsRows = posts.map((p, idx) => `<tr>
+    <td>${idx+1}</td><td>${p.post}</td><td>${p.sanctioned}</td><td>${p.filled}</td><td>${p.vacant}</td>
+  </tr>`).join('');
+  const totalSanctioned = sumField(posts, 'sanctioned');
+  const totalFilled = sumField(posts, 'filled');
+  const totalVacant = sumField(posts, 'vacant');
+
+  const html = `
+    <div class="title">Monthly Expenditure Return For Month to ${month} - ${year}</div>
+    <div class="office-row"><strong>Name of Office:</strong> ${office_name}</div>
+    <table class="mer">
+      <colgroup>
+        <col style="width:1.577%"><col style="width:4.301%"><col style="width:3.943%">
+        <col style="width:4.443%"><col style="width:3.584%"><col style="width:3.226%">
+        <col style="width:5.159%"><col style="width:4.443%"><col style="width:2.582%">
+        <col style="width:3.382%"><col style="width:2.4%"><col style="width:2.4%">
+        <col style="width:2.367%">
+        <col style="width:2.582%"><col style="width:2.582%"><col style="width:2.367%">
+        <col style="width:2.867%"><col style="width:5.5%"><col style="width:3.082%">
+        <col style="width:2.383%"><col style="width:2.383%"><col style="width:2.383%">
+        <col style="width:2.383%"><col style="width:2.383%"><col style="width:2.383%">
+        <col style="width:2.383%"><col style="width:2.383%"><col style="width:2.383%">
+        <col style="width:3.943%"><col style="width:6.0%">
+        <col style="width:6.12%">
+      </colgroup>
+      <thead>
+        <tr>
+          <th rowspan="3">Sr.<br>No.</th>
+          <th rowspan="3">Try. Vr.<br>No. & Date</th>
+          <th colspan="5">Pay of Establishment</th>
+          <th rowspan="2">D.A.<br>${daRatePercent}%</th>
+          <th rowspan="2">Sched.<br>Area<br>Allow.</th>
+          <th>H.R.<br>Allowance</th>
+          <th>Other<br>Allowance</th>
+          <th rowspan="2">Medical<br>Charges</th>
+          <th rowspan="2">Fest.<br>Adv.</th>
+          <th rowspan="2">Fest.<br>Adv.<br>Recov.</th>
+          <th colspan="3">Wages</th>
+          <th rowspan="2">Total<br>Salary</th>
+          <th rowspan="2">Other<br>T.A.</th>
+          <th colspan="9">Other Officer Expenditure 04</th>
+          <th rowspan="2">Total<br>Contg.<br>34 Exp.</th>
+          <th rowspan="2">Vocat. Services<br>Payment 10<br>Exam Work</th>
+          <th rowspan="2">Grand<br>Total</th>
+        </tr>
+        <tr>
+          <th>Pay of<br>Officer</th><th>Pay of<br>S.E.S.</th><th>Pay of<br>Minist.<br>Staff</th>
+          <th>Pay of<br>Servant</th><th>Total Pay<br>of Estt.</th>
+          <th>7%</th><th>City &<br>Medical<br>Allow</th>
+          <th>Contg.<br>Estt.</th><th>Other<br>Contg.<br>Wages</th><th>Daily<br>Wages</th>
+          <th>P.&T.<br>Exp.</th><th>Tele<br>phone</th><th>Furni<br>ture</th><th>Book &<br>Period.</th>
+          <th>Electric &<br>Water</th><th>Live<br>ries</th><th>Sta<br>tio<br>nery</th><th>Other Off.<br>Contg.</th><th>Info.<br>Tech.</th>
+        </tr>
+        <tr class="code-row">
+          <th>001</th><th>001</th><th>001</th><th>001</th><th></th>
+          <th>003</th><th>005</th><th>006</th><th>014</th><th>015</th>
+          <th>020</th><th>021</th><th>1/26</th><th>02/004</th><th>02/005</th><th>200</th>
+          <th>100</th><th>001</th><th>002</th><th>003</th><th>004</th><th>005</th>
+          <th>006</th><th>007</th><th>008</th><th>009</th><th></th>
+          <th>002</th><th></th>
+        </tr>
+        <tr>${Array.from({length:31},(_,i)=>`<th>${i+1}</th>`).join('')}</tr>
+      </thead>
+      <tbody>
+        ${dataRowsHtml}
+        ${totalRow('Total Ex. of this Month', thisMonth)}
+        ${totalRow('Total Ex. upto Last Month', lastMonth)}
+        ${totalRow('Total Ex. upto Day', uptoDate)}
+      </tbody>
+    </table>
+    <div class="footer-block">
+      <p>1. Certified that amount during the month has been shown and on omission has been done.</p>
+      <p>2. The Try. No. and date of encashment quoted in M.E.R. are of the Distt. Try. ___________________</p>
+      <p>Total Expdt. of Current Month: <strong>${fmt(thisMonth.grand_total)}</strong></p>
+      <p>Total Expdt. of Last Month: <strong>${fmt(lastMonthSingle)}</strong></p>
+      <p>Reason for Variation: ${reason_for_variation || '___________________'}</p>
+      <table class="posts">
+        <tr><th>S.No.</th><th>Post</th><th>No. of Sanctioned Post's</th><th>No. Filled</th><th>No. of Posts Vacant</th></tr>
+        ${postsRows}
+        <tr><td colspan="2"><strong>Total</strong></td><td><strong>${totalSanctioned}</strong></td>
+          <td><strong>${totalFilled}</strong></td><td><strong>${totalVacant}</strong></td></tr>
+      </table>
+      <div class="signature-block">
+        <p>Principal</p>
+        <p>${office_name}</p>
+        <p>Distt. - ${district}</p>
+        <p>D.D. Code: ${dd_code}</p>
+        <p>Mobile No.: ${mobile_no}</p>
+      </div>
+    </div>`;
+
+  document.getElementById('preview-wrapper').innerHTML = html;
+  autoFitMerTable();
+}
+
+// ---------------------------------------------------------------------
+// Auto-fit for the on-screen/print HTML table (table.mer).
+//
+// Previously this table used fixed guessed % column widths and fixed
+// font sizes (11px screen / 11.5pt print). The moment any value in a
+// column was wider than whoever picked that guess anticipated — e.g.
+// "Daily Wages" or "Total Salary" once cumulative totals grew past 6
+// figures — the text wrapped/broke inside the cell instead of the
+// column growing to fit it.
+//
+// This function measures, with a real canvas 2D context (so it reflects
+// actual font metrics, not guesswork), the pixel width every value in
+// every column needs — including all entry rows, all three total rows,
+// the header label, the "(0xx)" code, and the 1..31 position number —
+// then sizes the columns and fonts so nothing is ever left to chance.
+// It targets the same physical width used by "Download PDF" (A3
+// landscape, 404mm usable after margins) so the screen preview and the
+// printed page are always the same layout — this is what makes the
+// browser's own Print dialog auto-fit too, not just the PDF button.
+function autoFitMerTable() {
+  const table = document.querySelector('table.mer');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+
+  const N = PDF_COLUMNS.length; // 31 columns, same order as the colgroup/thead
+  const MID_IDX = new Set([2, 3, 6, 7]);   // Pay of Officer, S.E.S., Total Estt., D.A. — emphasized
+  const BIG_IDX = new Set([17, 30]);       // Total Salary, Grand Total — most emphasized
+
+  // Collect every actual rendered value per column straight from the DOM,
+  // so measurement always matches exactly what will be shown/printed —
+  // colSpan cells (the "Total Ex. ..." row labels) are skipped since they
+  // don't represent a single column's figure.
+  const colTexts = Array.from({ length: N }, () => []);
+  // colSpan cells — e.g. the "Total Ex. of this Month" / "...upto Last
+  // Month" / "...upto Day" row labels, which span the first two columns —
+  // don't represent a single column's figure, so they're kept separately
+  // here (spanNeeds) rather than mixed into colTexts, and are used below
+  // to make sure the columns they cover are collectively wide enough for
+  // that label text too, not just for each column's own narrow values.
+  const spanNeeds = [];
+  Array.from(tbody.rows).forEach(tr => {
+    let colIdx = 0;
+    Array.from(tr.cells).forEach(td => {
+      const span = td.colSpan || 1;
+      const text = td.textContent.trim();
+      if (span === 1) {
+        if (text) colTexts[colIdx].push(text);
+      } else if (text) {
+        spanNeeds.push({ start: colIdx, span, text });
+      }
+      colIdx += span;
+    });
+  });
+
+  const canvas = autoFitMerTable._canvas || (autoFitMerTable._canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+
+  // Use the table's REAL rendered font, not a hardcoded 'Arial'. On devices
+  // where Arial isn't actually installed (common on Android/WebView), the
+  // browser silently substitutes a fallback font — but a canvas context
+  // told to use "Arial" measures Arial's metrics regardless, which don't
+  // match what's actually painted. Reading the table's own computed
+  // font-family keeps canvas measurement and real rendering in sync.
+  const sampleCell = table.querySelector('tbody td') || table.querySelector('th');
+  const FONT_FAMILY = sampleCell ? getComputedStyle(sampleCell).fontFamily : 'Arial, sans-serif';
+
+  // ---- Comfortable, FIXED font sizes — never shrunk to fit a page ----
+  // Earlier versions started from a generous size and then squeezed it
+  // down, sometimes all the way to a barely-legible floor, to force 31
+  // columns onto a preset A3 sheet — and even then a measurement/rounding
+  // mismatch could still leave the widest figures (columns 17-18, Daily
+  // Wages / Total Salary — always the widest because they're totals) a
+  // hair too tight, clipping or wrapping their digits. Instead: pick sizes
+  // that are comfortable to read, measure exactly how much width THAT
+  // needs, and size the page to match (see pageWidthMM below) — the page
+  // now auto-fits the content instead of the content being forced to fit
+  // a fixed page.
+  const fs = { base: 16, mid: 18.5, big: 20, header: 13, code: 11, number: 14 };
+
+  // Safety buffer scales with font size (bigger glyphs need proportionally
+  // more slack than a flat px guess), and every figure is measured at BOLD
+  // weight — the three total rows print bold and are always the widest
+  // values in their column, so measuring only the normal weight is what
+  // previously under-counted how much room columns 17-18 actually needed.
+  const pad = (basePx, fontPx) => basePx + fontPx * 0.9;
+
+  function measureMins() {
+    return PDF_COLUMNS.map((col, i) => {
+      const dataFS = BIG_IDX.has(i) ? fs.big : (MID_IDX.has(i) ? fs.mid : fs.base);
+      ctx.font = `bold ${dataFS}px ${FONT_FAMILY}`;
+      let dataMax = 0;
+      colTexts[i].forEach(t => { const w = ctx.measureText(t).width; if (w > dataMax) dataMax = w; });
+      const dataMin = colTexts[i].length ? dataMax + pad(6, dataFS) : 0;
+
+      ctx.font = `bold ${fs.header}px ${FONT_FAMILY}`;
+      let labelMax = 0;
+      col.header.split('\n').forEach(line => { const w = ctx.measureText(line).width; if (w > labelMax) labelMax = w; });
+      const labelMin = labelMax + pad(5, fs.header);
+
+      let codeMin = 0;
+      if (col.code) {
+        ctx.font = `bold ${fs.code}px ${FONT_FAMILY}`;
+        codeMin = ctx.measureText(`(${col.code})`).width + pad(4, fs.code);
+      }
+
+      ctx.font = `bold ${fs.number}px ${FONT_FAMILY}`;
+      const numberMin = ctx.measureText(String(i + 1)).width + pad(4, fs.number);
+
+      return Math.max(dataMin, labelMin, codeMin, numberMin);
+    });
+  }
+
+  // Wraps the fs-dependent measurement steps (initial measure + the
+  // colSpan label-fit enforcement) so they can be re-run at a smaller
+  // font size if the comfortable size turns out wider than a real page
+  // supports (see the A3 cap below).
+  function measureAndEnforceSpans() {
+    const mins = measureMins();
+    spanNeeds.forEach(({ start, span, text }) => {
+      ctx.font = `bold ${fs.base}px ${FONT_FAMILY}`;
+      const needed = ctx.measureText(text).width + pad(8, fs.base);
+      let have = 0;
+      for (let i = start; i < start + span && i < mins.length; i++) have += mins[i];
+      if (needed > have && have > 0) {
+        const factor = needed / have;
+        for (let i = start; i < start + span && i < mins.length; i++) mins[i] *= factor;
+      }
+    });
+    return { mins, sumMins: mins.reduce((a, b) => a + b, 0) };
+  }
+
+  let { mins, sumMins } = measureAndEnforceSpans();
+
+  const MARGIN_MM = 8;
+
+  // ---- Cap to a real, printable page size ----
+  // At the comfortable sizes above, 31 columns need a page far wider than
+  // any real printer or "Save as PDF" dialog supports — one that can't
+  // honor it just auto-shrinks the whole page to whatever it does
+  // support, shrinking the font right along with it and making the text
+  // look tiny despite asking for a comfortable size on screen. A3
+  // landscape is capped to here (matching the "Download PDF" button) so
+  // what's shown on screen is a page every standard printer genuinely
+  // supports.
+  const MAX_PAGE_WIDTH_MM = 420;
+  const maxWidthPx = (MAX_PAGE_WIDTH_MM - MARGIN_MM * 2) * 96 / 25.4;
+  if (sumMins > maxWidthPx) {
+    const originalFs = { ...fs };
+    let scale = maxWidthPx / sumMins;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      fs.base = originalFs.base * scale;
+      fs.mid = originalFs.mid * scale;
+      fs.big = originalFs.big * scale;
+      fs.header = originalFs.header * scale;
+      fs.code = originalFs.code * scale;
+      fs.number = originalFs.number * scale;
+      ({ mins, sumMins } = measureAndEnforceSpans());
+      if (sumMins <= maxWidthPx) break;
+      scale *= (maxWidthPx / sumMins) * 0.99;
+    }
+  }
+
+  // Every column's share of the table is proportional to what it actually
+  // needs, normalized so the shares always sum to exactly 100% (canvas
+  // rounding could otherwise leave the last column a hair short — its own
+  // way of causing the "breaking" symptom).
+  let pct = mins.map(m => (m / sumMins) * 100);
+  const pctFix = 100 / pct.reduce((a, b) => a + b, 0);
+  pct = pct.map(p => p * pctFix);
+  const cols = table.querySelectorAll('colgroup col');
+  cols.forEach((col, i) => { if (pct[i] != null) col.style.width = pct[i].toFixed(4) + '%'; });
+
+  let styleEl = document.getElementById('mer-dyn-style');
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'mer-dyn-style';
+    document.head.appendChild(styleEl);
+  }
+  const r = n => n.toFixed(2);
+
+  // Applies a given table width and, crucially, an @page rule sized to
+  // match it — this is what makes printing "auto/custom" instead of a
+  // forced sheet: the OS/PDF print dialog receives a page exactly as wide
+  // as this table actually needs, at these comfortable font sizes.
+  function apply(widthPx) {
+    const pageWidthMM = Math.round((widthPx * 25.4 / 96) + MARGIN_MM * 2);
+    styleEl.textContent = `
+      table.mer { width: ${widthPx}px !important; min-width: ${widthPx}px !important; }
+      table.mer tbody td { font-size: ${r(fs.base)}px !important; white-space: nowrap; }
+      table.mer tbody td.hl-mid { font-size: ${r(fs.mid)}px !important; }
+      table.mer tbody td.hl-big { font-size: ${r(fs.big)}px !important; }
+      table.mer thead tr:nth-child(1) th, table.mer thead tr:nth-child(2) th { font-size: ${r(fs.header)}px !important; }
+      table.mer thead tr.code-row th { font-size: ${r(fs.code)}px !important; }
+      table.mer thead tr:nth-child(4) th { font-size: ${r(fs.number)}px !important; }
+      @media print {
+        table.mer { width: ${widthPx}px !important; min-width: 0 !important; }
+        #preview-wrapper { width: ${widthPx}px !important; }
+      }
+      @page { size: ${pageWidthMM}mm landscape; margin: ${MARGIN_MM}mm; }
+    `;
+  }
+
+  let widthPx = Math.round(sumMins);
+  apply(widthPx);
+
+  // Belt-and-suspenders: canvas measurement is always an estimate. Now
+  // that the sizes are live in the DOM, check every data cell for real
+  // overflow (scrollWidth > clientWidth, exactly the "columns 17-18
+  // breaking" symptom) and, if anything still overflows, WIDEN the table
+  // (and its matching @page size) a little and re-check — never shrink
+  // the already-comfortable font. A few iterations is always enough.
+  let guard = 0;
+  while (guard < 8) {
+    guard++;
+    const dataTds = tbody.querySelectorAll('td');
+    let overflowing = false;
+    dataTds.forEach(td => { if (td.scrollWidth > td.clientWidth + 1) overflowing = true; });
+    if (!overflowing) break;
+    widthPx = Math.round(widthPx * 1.04);
+    apply(widthPx);
+  }
+}
+
+// Re-run right before the OS print dialog opens too (covers cases like a
+// device font substitution changing actual glyph widths at print time),
+// and once on load after web fonts are ready for extra safety.
+window.addEventListener('beforeprint', autoFitMerTable);
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(() => autoFitMerTable());
+}
+
+// Rolls "Total Ex. upto Day" of the current month into next month's
+// "Total Ex. upto Last Month" opening balance — exactly like the paper
+// form, where this month's closing cumulative figure becomes next month's
+// carried-forward figure. Clears this month's entries so a fresh M.E.R.
+// can be started, but keeps office details.
+function carryForwardToNextMonth() {
+  if (rows.length === 0) { alert('Please add this month\'s entries first.'); return; }
+  if (!confirm('This will carry "Total Ex. upto Day" forward as next month\'s opening balance, and clear this month\'s entry rows so you can start fresh. Continue?')) return;
+
+  const computedRows = rows.map(computeRow);
+  const carryKeys = COLS.map(([key]) => key); // everything except da_58/hr_allow_7 (auto-derived)
+
+  const thisMonth = {};
+  carryKeys.forEach(k => thisMonth[k] = sumField(computedRows, k));
+  const thisMonthGrandTotal = sumField(computedRows, 'grand_total');
+
+  const lastMonth = {};
+  carryKeys.forEach(k => {
+    const el = document.getElementById('lm_' + k);
+    lastMonth[k] = el ? (Number(el.value) || 0) : 0;
+  });
+
+  const uptoDate = {};
+  carryKeys.forEach(k => uptoDate[k] = (thisMonth[k] || 0) + (lastMonth[k] || 0));
+
+  carryKeys.forEach(k => {
+    const el = document.getElementById('lm_' + k);
+    if (el) el.value = uptoDate[k];
+  });
+  updateLastMonthAutoCalc();
+
+  rows = [];
+  const nextMY = getNextMonthYear(document.getElementById('month').value, document.getElementById('year').value);
+  document.getElementById('month').value = nextMY.month;
+  document.getElementById('year').value = nextMY.year;
+  document.getElementById('reason_for_variation').value = '';
+  document.getElementById('last_month_single_total').value = thisMonthGrandTotal;
+  renderRowsForm();
+  renderPreview();
+  scheduleAutosave();
+  alert('Done. Next month\'s "Total Ex. upto Last Month" is now set. Enter the new month name and this month\'s entries.');
+}
+
+// Column order/definitions matching the on-screen preview table, columns 3-31
+// (columns 1-2 are Sr.No. / Try.Vr.No.&Date and carry no code). The `code`
+// values here are copied verbatim from the preview table's code-row so the
+// PDF matches the on-screen form exactly.
+const PDF_COLUMNS = [
+  { key: 'sr',                   header: 'Sr.\nNo.',                 code: '' },
+  { key: 'try_vr_no_date',       header: 'Try. Vr.\nNo. & Date',      code: '' },
+  { key: 'pay_officer',          header: 'Pay of\nOfficer',           code: '001' },
+  { key: 'pay_ses',              header: 'Pay of\nS.E.S.',            code: '001' },
+  { key: 'pay_ministerial',      header: 'Pay of\nMinist.\nStaff',    code: '001' },
+  { key: 'pay_servant',          header: 'Pay of\nServant',           code: '001' },
+  { key: 'total_estt',           header: 'Total Pay\nof Estt.',       code: '' },
+  { key: 'da_58',                header: 'D.A.\n58%',                 code: '003' },
+  { key: 'sched_area_allow',     header: 'Sched.\nArea\nAllow.',      code: '005' },
+  { key: 'hr_allow_7',           header: 'H.R. Allow\n7%',            code: '006' },
+  { key: 'other_allow_citymedical', header: 'Other Allow.\nCity &\nMedical\nAllow', code: '014' },
+  { key: 'medical_charges',      header: 'Medical\nCharges',          code: '015' },
+  { key: 'festival_advance',     header: 'Fest.\nAdv.',                code: '020' },
+  { key: 'festival_adv_recovery',header: 'Fest.\nAdv.\nRecov.',       code: '021' },
+  { key: 'wages_contg_estt',     header: 'Contg.\nEstt.',             code: '1/26' },
+  { key: 'wages_other_contg',    header: 'Other\nContg.\nWages',      code: '02/004' },
+  { key: 'daily_wages',          header: 'Daily\nWages',              code: '02/005' },
+  { key: 'total_salary',         header: 'Total\nSalary',             code: '200' },
+  { key: 'other_ta',             header: 'Other\nT.A.',               code: '100' },
+  { key: 'ptt_exp',              header: 'P.&T.\nExp.',               code: '001' },
+  { key: 'telephone',            header: 'Tele\nphone',               code: '002' },
+  { key: 'furniture',            header: 'Furni\nture',               code: '003' },
+  { key: 'book_period',          header: 'Book &\nPeriod.',           code: '004' },
+  { key: 'electric_water',       header: 'Electric &\nWater',         code: '005' },
+  { key: 'liveries',             header: 'Live\nries',                code: '006' },
+  { key: 'stationery',           header: 'Sta\ntio\nnery',            code: '007' },
+  { key: 'other_off_contg',      header: 'Other Off.\nContg.',        code: '008' },
+  { key: 'info_tech',            header: 'Info.\nTech.',              code: '009' },
+  { key: 'total_contg_exp',      header: 'Total\nContg.\n34 Exp.',     code: '' },
+  { key: 'vocational_services',  header: 'Vocat. Services\nPay. 10\nExam Work', code: '002' },
+  { key: 'grand_total',          header: 'Grand\nTotal',              code: '' }
+];
+
+async function downloadPDF() {
+  const btn = document.getElementById('pdf-btn');
+  const originalLabel = btn.textContent;
+  btn.textContent = '⏳ Generating...';
+  btn.disabled = true;
+  const daCol = PDF_COLUMNS.find(c => c.key === 'da_58');
+  if (daCol) daCol.header = `D.A.\n${daRatePercent}%`;
+  try {
+    // Earlier versions built the PDF by screenshotting the on-screen preview
+    // with html2canvas (in a few different variations). On this device — an
+    // Android WebView, not full Chrome — that consistently produced a
+    // completely blank capture no matter what was targeted, because
+    // html2canvas always clones the page into its own hidden iframe
+    // internally to take the screenshot, and this WebView doesn't paint
+    // that cloned iframe's content at all.
+    // Fix: don't screenshot anything. Draw the report directly with jsPDF +
+    // its autoTable plugin instead — real vector text and lines, generated
+    // straight from the same data the preview uses, so there is no
+    // rendering/painting step for any WebView to get wrong. This also
+    // produces a smaller, sharper, selectable-text PDF than a screenshot.
+    const office_name = document.getElementById('office_name').value || '';
+    const district = document.getElementById('district').value || '';
+    const dd_code = document.getElementById('dd_code').value || '';
+    const mobile_no = document.getElementById('mobile_no').value || '';
+    const month = document.getElementById('month').value || '';
+    const year = document.getElementById('year').value || '';
+    const reason_for_variation = document.getElementById('reason_for_variation').value || '';
+    const lastMonthSingle = Number(document.getElementById('last_month_single_total')?.value) || 0;
+
+    const computedRows = rows.map(computeRow);
+
+    const allKeys = ['pay_officer','pay_ses','pay_ministerial','pay_servant','total_estt','da_58',
+      'sched_area_allow','hr_allow_7','other_allow_citymedical','medical_charges','festival_advance','festival_adv_recovery',
+      'wages_contg_estt','wages_other_contg','daily_wages','total_salary','other_ta','ptt_exp','telephone',
+      'furniture','book_period','electric_water','liveries','stationery','other_off_contg','info_tech',
+      'total_contg_exp','vocational_services','grand_total'];
+
+    const thisMonth = {};
+    allKeys.forEach(k => thisMonth[k] = sumField(computedRows, k));
+
+    const lastMonth = {};
+    allKeys.forEach(k => {
+      if (k === 'total_estt' || k === 'total_salary' || k === 'total_contg_exp' || k === 'grand_total') return;
+      const el = document.getElementById('lm_' + k);
+      lastMonth[k] = el ? (Number(el.value) || 0) : 0;
+    });
+    lastMonth.total_estt = lastMonth.pay_officer + lastMonth.pay_ses + lastMonth.pay_ministerial + lastMonth.pay_servant;
+    lastMonth.da_58 = Math.round(lastMonth.total_estt * (daRatePercent / 100));
+    lastMonth.hr_allow_7 = Math.round(lastMonth.total_estt * 0.07);
+    lastMonth.total_salary = lastMonth.total_estt + lastMonth.da_58 + lastMonth.sched_area_allow + lastMonth.hr_allow_7
+      + lastMonth.other_allow_citymedical + lastMonth.medical_charges + lastMonth.festival_advance - lastMonth.festival_adv_recovery
+      + lastMonth.wages_contg_estt + lastMonth.wages_other_contg + lastMonth.daily_wages;
+    lastMonth.total_contg_exp = lastMonth.ptt_exp + lastMonth.telephone + lastMonth.furniture + lastMonth.book_period
+      + lastMonth.electric_water + lastMonth.liveries + lastMonth.stationery + lastMonth.other_off_contg + lastMonth.info_tech;
+    lastMonth.grand_total = lastMonth.total_salary + lastMonth.other_ta + lastMonth.total_contg_exp
+      + lastMonth.vocational_services;
+
+    const uptoDate = {};
+    allKeys.forEach(k => uptoDate[k] = (thisMonth[k] || 0) + (lastMonth[k] || 0));
+
+    // ---- FIXED single A4 landscape page, font sized to fill it exactly ----
+    // All 31 columns must sit on ONE A4 landscape sheet. That's a hard
+    // physical limit — 31 columns of real figures need more room than a
+    // fixed A4 sheet has at a "comfortable" size — so instead of guessing,
+    // every column's real content is measured, then the font is scaled
+    // (down, or up if there's ever room to spare) until the table's
+    // printed width lands EXACTLY on the page's usable width (page width
+    // minus an identical margin on all 4 sides). The same is then done
+    // vertically: any left-over space below the footer/signature block is
+    // fed back into the table's own row height, so the sheet — table,
+    // certificate lines, posts table, and signature — starts and ends
+    // flush with that same margin on every side instead of leaving blank
+    // space on the right or at the bottom.
+    const { jsPDF } = window.jspdf;
+    const measurePdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [900, 297] });
+
+    // ---- Page size is user-selectable (A4 / A3 / A2, all landscape). ----
+    // Bigger sheet = same auto-fit logic below simply has more usable width
+    // to spread the 31 columns across, so the font naturally comes out
+    // larger — that's the whole mechanism behind "bigger paper = bigger
+    // font", no separate font-scale setting needed.
+    const PAGE_SIZES = { A4: [297, 210], A3: [420, 297], A2: [594, 420] };
+    const selectedSize = document.getElementById('pdf-page-size')?.value || 'A4';
+    const [PAGE_W, PAGE_H] = PAGE_SIZES[selectedSize] || PAGE_SIZES.A4;
+    const MARGIN = 10;                   // identical on all 4 sides
+    const usableW = PAGE_W - MARGIN * 2;
+    const usableH = PAGE_H - MARGIN * 2;
+    // PAPER_SCALE and TITLE_H are computed further below, once the main
+    // table's real content-driven font size is known (see the comment
+    // above PAPER_SCALE's definition for why it isn't just a page-size
+    // ratio).
+
+    const head = [
+      PDF_COLUMNS.map(c => c.header),
+      PDF_COLUMNS.map(c => c.code ? `(${c.code})` : ''),
+      PDF_COLUMNS.map((_, i) => String(i + 1))
+    ];
+
+    const dataToRow = (r) => PDF_COLUMNS.map(c => {
+      if (c.key === 'try_vr_no_date') return r.try_vr_no_date || '-';
+      return fmt(r[c.key]) === '' ? '' : fmt(r[c.key]);
+    });
+
+    const body = computedRows.map((r, idx) => {
+      const row = dataToRow(r);
+      row[0] = idx + 1;
+      return row;
+    });
+
+    function totalRow(label, t) {
+      const cells = [{ content: label, colSpan: 2, styles: { halign: 'left', fontStyle: 'bold' } }];
+      for (let i = 2; i < PDF_COLUMNS.length; i++) {
+        cells.push({ content: fmt(t[PDF_COLUMNS[i].key]), styles: { fontStyle: 'bold' } });
+      }
+      return cells;
+    }
+
+    body.push(totalRow('Total Ex. of this Month', thisMonth));
+    body.push(totalRow('Total Ex. upto Last Month', lastMonth));
+    body.push(totalRow('Total Ex. upto Day', uptoDate));
+
+    // ---- Measure exactly how wide every column's content needs to be ----
+    const MID_COLS = [2, 3, 6, 7]; // Pay of S.E.S., Total Estt., D.A. — slightly larger font
+    const PAD_DATA = 2.2;
+    const PAD_LABEL = 1.2;
+    const PAD_CODE = 1;
+    const PAD_NUMBER = 1.2;
+    const SAFETY = 0.6;
+
+    const totalRowStartIdx = computedRows.length;
+    const colValues = Array.from({ length: PDF_COLUMNS.length }, () => []);
+    body.forEach((row, rIdx) => {
+      const bold = rIdx >= totalRowStartIdx;
+      let colIdx = 0;
+      row.forEach(cell => {
+        const span = (cell && typeof cell === 'object' && cell.colSpan) ? cell.colSpan : 1;
+        const text = (cell && typeof cell === 'object') ? String(cell.content ?? '') : String(cell ?? '');
+        if (span === 1 && text) colValues[colIdx].push({ text, bold });
+        colIdx += span;
+      });
+    });
+
+    function measureColumnMins(baseFS, midFS, headerFS) {
+      const codeFS = Math.max(headerFS - 0.6, 3.5);
+      const numberFS = headerFS + 0.8;
+      return PDF_COLUMNS.map((col, i) => {
+        const fontSize = MID_COLS.includes(i) ? midFS : baseFS;
+        measurePdf.setFontSize(fontSize);
+        let maxDataWidth = 0;
+        colValues[i].forEach(({ text, bold }) => {
+          measurePdf.setFont('helvetica', bold ? 'bold' : 'normal');
+          const w = measurePdf.getTextWidth(text);
+          if (w > maxDataWidth) maxDataWidth = w;
+        });
+        const dataMin = maxDataWidth * 1.03 + PAD_DATA + SAFETY;
+
+        let codeMin = 0;
+        if (col.code) {
+          measurePdf.setFont('helvetica', 'normal');
+          measurePdf.setFontSize(codeFS);
+          codeMin = measurePdf.getTextWidth(`(${col.code})`) + PAD_CODE + SAFETY;
+        }
+
+        measurePdf.setFont('helvetica', 'bold');
+        measurePdf.setFontSize(headerFS);
+        let maxLabelWidth = 0;
+        col.header.split('\n').forEach(line => {
+          const w = measurePdf.getTextWidth(line);
+          if (w > maxLabelWidth) maxLabelWidth = w;
+        });
+        const labelMin = maxLabelWidth + PAD_LABEL + SAFETY;
+
+        measurePdf.setFont('helvetica', 'normal');
+        measurePdf.setFontSize(numberFS);
+        const numberMin = measurePdf.getTextWidth(String(i + 1)) + PAD_NUMBER + SAFETY;
+
+        const fullMin = Math.max(dataMin, codeMin, labelMin, numberMin);
+        return { dataMin, codeMin, labelMin, numberMin, fullMin };
+      });
+    }
+
+    function computeMins(baseFS, midFS, headerFS) {
+      const mins = measureColumnMins(baseFS, midFS, headerFS);
+      measurePdf.setFont('helvetica', 'bold');
+      measurePdf.setFontSize(baseFS);
+      const widestLabel = Math.max(
+        measurePdf.getTextWidth('Total Ex. of this Month'),
+        measurePdf.getTextWidth('Total Ex. upto Last Month'),
+        measurePdf.getTextWidth('Total Ex. upto Day')
+      ) + PAD_DATA + SAFETY;
+      const span01 = mins[0].fullMin + mins[1].fullMin;
+      if (widestLabel > span01) {
+        const factor = widestLabel / span01;
+        mins[0].fullMin *= factor;
+        mins[1].fullMin *= factor;
+      }
+      return mins;
+    }
+
+    // ---- Scale font (up or down) so the table lands EXACTLY on usableW ----
+    // Starts from a comfortable size, then iterates toward whatever size
+    // makes 31 columns land exactly on the given usable width — for A4
+    // that means shrinking (31 columns need more room than A4 has), but
+    // it shrinks/grows only as much as the real, measured content forces
+    // it to (never an arbitrary guess), and it's applied identically to
+    // every value so nothing wraps or clips. Returns the fitted sizes
+    // without touching any outer state, so it can be re-run for a
+    // different target width (used below to get the A4 baseline).
+    function fitFontForWidth(targetUsableW) {
+      let baseFontSize = 13, midFontSize = 15.5, headerFontSize = 11;
+      let mins = computeMins(baseFontSize, midFontSize, headerFontSize);
+      let contentWidth = mins.reduce((a, m) => a + m.fullMin, 0);
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const scale = targetUsableW / contentWidth;
+        if (Math.abs(scale - 1) < 0.004) break;
+        baseFontSize *= scale; midFontSize *= scale; headerFontSize *= scale;
+        mins = computeMins(baseFontSize, midFontSize, headerFontSize);
+        contentWidth = mins.reduce((a, m) => a + m.fullMin, 0);
+      }
+      return { baseFontSize, midFontSize, headerFontSize, mins, contentWidth };
+    }
+
+    const fitted = fitFontForWidth(usableW);
+    let { baseFontSize, midFontSize, headerFontSize, mins, contentWidth } = fitted;
+    // Absorb any last fraction-of-a-mm rounding into the final column so
+    // the table lands on usableW to the pixel — keeps left/right margins
+    // exactly equal instead of a hairline gap on one side.
+    mins[mins.length - 1].fullMin += (usableW - contentWidth);
+    contentWidth = usableW;
+
+    const baseFS = baseFontSize, midFS = midFontSize, headerFS = headerFontSize;
+    const colWidths = mins.map(m => m.fullMin);
+    const pdfColumnStyles = {};
+    colWidths.forEach((w, i) => { pdfColumnStyles[i] = { cellWidth: w }; });
+    pdfColumnStyles[1].halign = 'left';
+
+    // ---- Real (not just proportional) paper-size scale for everything ----
+    // OUTSIDE the main table: title, office line, certification text,
+    // posts table, signature block. ----
+    //
+    // A naive scale (selected page width ÷ A4 width) is *linear* — and on
+    // a phone/PDF viewer that auto-fits each page to the screen, a purely
+    // linear scale is invisible: the page and the text both grow by the
+    // same factor, so after the viewer normalises them to fit the screen
+    // width, they land back at the same apparent size. That's exactly why
+    // "no difference" was seen after the first fix.
+    //
+    // The main data table doesn't have that problem, because its font
+    // isn't picked by a ratio at all — it's derived from real content:
+    // column header labels have a width that can't shrink below what the
+    // text needs, so as the page gets wider those fixed-minimum labels
+    // become a smaller share of the row and the *data* font gets more
+    // than a proportional share of the extra room. So this reuses that
+    // same real, content-driven number instead of inventing a separate
+    // ratio: it re-runs the exact same fit at A4's usable width to get the
+    // A4 baseline header font, then PAPER_SCALE is how much bigger the
+    // header font actually got on the selected sheet vs that baseline.
+    // That keeps every element's growth tied to the one real, measured
+    // effect instead of two different, inconsistent scaling rules.
+    const a4UsableW = PAGE_SIZES.A4[0] - MARGIN * 2;
+    const baselineHeaderFS = (selectedSize === 'A4') ? headerFontSize : fitFontForWidth(a4UsableW).headerFontSize;
+    const PAPER_SCALE = headerFontSize / baselineHeaderFS;
+    const TITLE_H = 16 * PAPER_SCALE;    // space used by title + office line
+
+    function didParseCellShared(data) {
+      if (data.section === 'head' && data.row.index === 1) {
+        data.cell.styles.fontSize = Math.max(headerFS - 0.6, 3.5);
+        data.cell.styles.fontStyle = 'normal';
+      }
+      if (data.section === 'head' && data.row.index === 2) {
+        data.cell.styles.fontSize = headerFS + 0.8;
+        data.cell.styles.fontStyle = 'normal';
+      }
+      if (data.section === 'body') {
+        if (data.column.index !== 1) data.cell.styles.overflow = 'visible';
+        if (MID_COLS.includes(data.column.index)) data.cell.styles.fontSize = midFS;
+        if (data.row.index === computedRows.length - 1) {
+          data.cell.styles.lineWidth = { top: 0.1, right: 0.1, bottom: 0.5, left: 0.1 };
+        }
+      }
+    }
+
+    const totalSanctioned = sumField(posts, 'sanctioned');
+    const totalFilled = sumField(posts, 'filled');
+    const totalVacant = sumField(posts, 'vacant');
+    const postsBody = [
+      ...posts.map((p, idx) => [idx + 1, p.post, p.sanctioned, p.filled, p.vacant]),
+      [{ content: 'Total', colSpan: 2, styles: { fontStyle: 'bold' } },
+       { content: totalSanctioned, styles: { fontStyle: 'bold' } },
+       { content: totalFilled, styles: { fontStyle: 'bold' } },
+       { content: totalVacant, styles: { fontStyle: 'bold' } }]
+    ];
+
+    // ---- Dry run on a tall scratch page: how much vertical space does ----
+    // ---- everything need at the baseline row padding? ----
+    const BASE_PAD = 0.6;
+    function buildMainTable(doc, startY, padExtra) {
+      doc.autoTable({
+        head, body, startY, theme: 'grid',
+        styles: {
+          fontSize: baseFS,
+          cellPadding: { top: BASE_PAD + padExtra, bottom: BASE_PAD + padExtra, left: 0.6, right: 0.6 },
+          halign: 'center', valign: 'middle', lineColor: [0, 0, 0], lineWidth: 0.1,
+          textColor: [0, 0, 0], overflow: 'linebreak'
+        },
+        headStyles: {
+          fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: headerFS,
+          lineWidth: 0.1, cellPadding: { top: 0.4 + padExtra * 0.5, bottom: 0.4 + padExtra * 0.5, left: 0.4, right: 0.4 }
+        },
+        columnStyles: pdfColumnStyles,
+        margin: { left: MARGIN, right: MARGIN },
+        tableWidth: usableW,
+        didParseCell: didParseCellShared
+      });
+      return doc.lastAutoTable.finalY;
+    }
+
+    function buildFooter(doc, startY) {
+      let y = startY;
+      const lineHeight = 5 * PAPER_SCALE;
+      const footerFS = 11.5 * PAPER_SCALE;
+      function addLine(text, bold) {
+        doc.setFont('helvetica', bold ? 'bold' : 'normal');
+        doc.text(text, MARGIN, y);
+        y += lineHeight;
+      }
+      doc.setFontSize(footerFS);
+      addLine('1. Certified that amount during the month has been shown and on omission has been done.');
+      addLine('2. The Try. No. and date of encashment quoted in M.E.R. are of the Distt. Try. ___________________');
+      addLine(`Total Expdt. of Current Month: ${fmt(thisMonth.grand_total)}`, true);
+      addLine(`Total Expdt. of Last Month: ${fmt(lastMonthSingle)}`, true);
+      addLine(`Reason for Variation: ${reason_for_variation || '___________________'}`);
+      y += 2 * PAPER_SCALE;
+      const postsStartY = y;
+      doc.autoTable({
+        startY: postsStartY, theme: 'grid',
+        head: [['S.No.', 'Post', "No. of Sanctioned Post's", 'No. Filled', 'No. of Posts Vacant']],
+        body: postsBody,
+        styles: { fontSize: footerFS, cellPadding: 2 * PAPER_SCALE, halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
+        headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
+        margin: { left: MARGIN },
+        tableWidth: 'wrap'
+      });
+      const postsFinalY = doc.lastAutoTable.finalY;
+      const sigX = PAGE_W - MARGIN;
+      let sigY = postsStartY + 8 * PAPER_SCALE;
+      doc.setFontSize(footerFS);
+      [
+        'Principal', office_name, `Distt. - ${district}`, `D.D. Code: ${dd_code}`, `Mobile No.: ${mobile_no}`
+      ].forEach(line => { doc.text(line, sigX, sigY, { align: 'right' }); sigY += lineHeight; });
+      const sigFinalY = sigY - lineHeight;
+      return Math.max(postsFinalY, sigFinalY);
+    }
+
+    const dryDoc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [PAGE_W, 900] });
+    const dryTableEnd = buildMainTable(dryDoc, MARGIN + TITLE_H, 0);
+    const dryFooterEnd = buildFooter(dryDoc, dryTableEnd + 6 * PAPER_SCALE);
+    const usedHeight = dryFooterEnd - MARGIN;
+    const targetHeight = usableH;
+    const extra = targetHeight - usedHeight;
+    // Feed any left-over vertical space back into the table's own row
+    // height (top+bottom padding), split across every row (header + data
+    // + total rows), so the whole sheet — not just the table — ends flush
+    // with the bottom margin instead of leaving blank space there.
+    const numRows = body.length + 3;
+    const padExtra = extra > 0 ? Math.max(0, extra / (2 * numRows)) : 0;
+
+    // ---- Build the REAL, final page (title/office line scaled to the
+    // ---- selected paper size, same as everything else) ----
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [PAGE_W, PAGE_H] });
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(15 * PAPER_SCALE);
+    pdf.text(`Monthly Expenditure Return For Month to ${month} - ${year}`, PAGE_W / 2, MARGIN + 4 * PAPER_SCALE, { align: 'center' });
+    pdf.setFontSize(11 * PAPER_SCALE);
+    pdf.text(`Name of Office: ${office_name}`, PAGE_W / 2, MARGIN + 11 * PAPER_SCALE, { align: 'center' });
+
+    const tableEnd = buildMainTable(pdf, MARGIN + TITLE_H, padExtra);
+    buildFooter(pdf, tableEnd + 6 * PAPER_SCALE);
+
+    pdf.save(`MER_${month || 'MER'}_${year}_${selectedSize}.pdf`);
+  } catch (err) {
+    alert('PDF generation failed: ' + err.message);
+  } finally {
+    btn.textContent = originalLabel;
+    btn.disabled = false;
+  }
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+    scheduleAutosave();
+  }
+});
+
+function exportJSON() {
+  const data = collectState();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `MER_${data.month || 'data'}_${data.year || ''}.json`;
+  a.click();
+}
+
+function importJSON(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      applyState(data);
+      fixBlankOfficeDetails();
+      renderPreview();
+      scheduleAutosave();
+      alert('Data imported successfully.');
+    } catch (err) {
+      alert('Invalid JSON file: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// init -- if this browser has previously auto-saved data, restore it. Otherwise
+// preload with June 2026 sample data (from the original M.E.R.) so the tool is
+// easy to understand on first open. Edit/replace this data with your own.
+renderLastMonthForm();
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Returns the current real-world month name / year (used to auto-fill the
+// Month/Year fields instead of requiring manual entry).
+function getCurrentMonthYear() {
+  const d = new Date();
+  return { month: MONTH_NAMES[d.getMonth()], year: d.getFullYear() };
+}
+
+// Given a month name + year, returns the following month/year — used by
+// "Start Next Month" so the fields auto-advance instead of being cleared.
+// Falls back to today's month/year if the current value isn't recognised.
+function getNextMonthYear(monthName, year) {
+  let idx = MONTH_NAMES.findIndex(m => m.toLowerCase() === String(monthName || '').trim().toLowerCase());
+  let y = parseInt(year, 10);
+  if (idx === -1 || isNaN(y)) return getCurrentMonthYear();
+  idx += 1;
+  if (idx > 11) { idx = 0; y += 1; }
+  return { month: MONTH_NAMES[idx], year: y };
+}
+
+// Takes the user back to whichever page linked here, falling back to
+// browser history, and finally just closing the tab if neither is possible.
+function goBack() {
+  if (document.referrer && document.referrer !== window.location.href) {
+    window.location.href = document.referrer;
+  } else if (window.history.length > 1) {
+    window.history.back();
+  } else {
+    window.close();
+  }
+}
+
+function loadSampleData() {
+  document.getElementById('month').value = 'June';
+  document.getElementById('year').value = 2026;
+  document.getElementById('office_name').value = 'Govt. High School Modhe, Takhatpur';
+  document.getElementById('district').value = 'Bilaspur (C.G.)';
+  document.getElementById('dd_code').value = '0720201';
+  document.getElementById('mobile_no').value = '9981177844';
+
+  addRow({
+    id: ++rowCounter, try_vr_no_date: '',
+    pay_officer: 98800, pay_ses: 0, pay_ministerial: 0, pay_servant: 0,
+    sched_area_allow: 0, other_allow_citymedical: 600, medical_charges: 0,
+    festival_advance: 0, festival_adv_recovery: 0,
+    wages_contg_estt: 0, wages_other_contg: 0, daily_wages: 0,
+    other_ta: 0, ptt_exp: 0, telephone: 0, furniture: 0, book_period: 0,
+    electric_water: 0, liveries: 0, stationery: 0, other_off_contg: 0, info_tech: 0,
+    vocational_services: 0
+  });
+  addRow({
+    id: ++rowCounter, try_vr_no_date: '',
+    pay_officer: 0, pay_ses: 241600, pay_ministerial: 0, pay_servant: 0,
+    sched_area_allow: 0, other_allow_citymedical: 3000, medical_charges: 0,
+    festival_advance: 0, festival_adv_recovery: 0,
+    wages_contg_estt: 0, wages_other_contg: 0, daily_wages: 0,
+    other_ta: 0, ptt_exp: 0, telephone: 0, furniture: 0, book_period: 0,
+    electric_water: 0, liveries: 0, stationery: 0, other_off_contg: 0, info_tech: 0,
+    vocational_services: 0
+  });
+
+  addPost({ id: ++postCounter, post: 'Pracharya (Principal)', sanctioned: 1, filled: 1, vacant: 0 });
+  addPost({ id: ++postCounter, post: 'Vyakhyata (Lecturer)', sanctioned: 6, filled: 5, vacant: 1 });
+
+  document.getElementById('reason_for_variation').value = '';
+  document.getElementById('last_month_single_total').value = 565260;
+
+  // "Total upto Last Month" figures, carried forward from the previous M.E.R.'s
+  // "Total Ex. upto Day" line (this month's totals get added to these automatically)
+  const lastMonthPreset = {
+    pay_officer: 197600, pay_ses: 483200, pay_ministerial: 0, pay_servant: 0,
+    sched_area_allow: 0, other_allow_citymedical: 7200, medical_charges: 0,
+    festival_advance: 0, festival_adv_recovery: 0,
+    wages_contg_estt: 0, wages_other_contg: 0, daily_wages: 0,
+    other_ta: 0, ptt_exp: 0, telephone: 0, furniture: 0, book_period: 0,
+    electric_water: 0, liveries: 0, stationery: 0, other_off_contg: 0, info_tech: 0,
+    vocational_services: 0
+  };
+  COLS.forEach(([key]) => {
+    const el = document.getElementById('lm_' + key);
+    if (el) el.value = lastMonthPreset[key] || 0;
+  });
+  updateLastMonthAutoCalc();
+}
+
+if (!loadAutosave()) {
+  loadSampleData();
+}
+loadUndoStack();
+
+// Safety net: if the restored data has an empty Posts section (e.g. an
+// older save from before a post was added, or it was accidentally
+// cleared), auto-fill the standard posts instead of silently generating
+// a PDF with a missing row. Never touches Posts if even one already
+// exists — this only fills a truly empty list.
+if (posts.length === 0) {
+  addPost({ id: ++postCounter, post: 'Pracharya (Principal)', sanctioned: 1, filled: 1, vacant: 0 });
+  addPost({ id: ++postCounter, post: 'Vyakhyata (Lecturer)', sanctioned: 6, filled: 5, vacant: 1 });
+  scheduleAutosave();
+}
+
+// Safety net: if Office Details were somehow restored/saved blank (e.g. an
+// old save from before these fields were filled in), auto-fill the known
+// office info instead of silently showing an empty header/footer on the PDF.
+// Never touches a field that already has a value. Called both on page load
+// and after every JSON import, since an imported file can carry the same
+// blank-office-fields problem forward.
+function fixBlankOfficeDetails() {
+  const officeDefaults = {
+    office_name: 'Govt. High School Modhe, Takhatpur',
+    district: 'Bilaspur (C.G.)',
+    dd_code: '0720201',
+    mobile_no: '9981177844'
+  };
+  let fixedAny = false;
+  Object.keys(officeDefaults).forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.value) { el.value = officeDefaults[id]; fixedAny = true; }
+  });
+  const monthEl = document.getElementById('month');
+  const yearEl = document.getElementById('year');
+  if (monthEl && yearEl && (!monthEl.value || !yearEl.value)) {
+    const cur = getCurrentMonthYear();
+    if (!monthEl.value) { monthEl.value = cur.month; fixedAny = true; }
+    if (!yearEl.value) { yearEl.value = cur.year; fixedAny = true; }
+  }
+  if (fixedAny) scheduleAutosave();
+}
+fixBlankOfficeDetails();
+
+renderPreview();
+</script>
+</body>
+</html>
